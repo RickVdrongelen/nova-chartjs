@@ -31,16 +31,13 @@ class TotalRecordsController extends Controller
         if(!in_array($unitOfMeasurement, ['day', 'week', 'month', 'hour'])){
             throw new ThrowError('UOM not defined correctly. <br/>Check documentation: https://github.com/coroo/nova-chartjs');
         }
-
-        $dateColumn = isset($request->options) ? json_decode($request->options, true)['dateColumn'] ?? 'created_at' : 'created_at';
         $calculation = isset($request->options) ? json_decode($request->options, true)['sum'] ?? 1 : 1;
-        $modelValues = isset($request->options) ? json_decode($request->options, true)['modelValues'] ?? 1 : 1;
         $request->validate(['model'   => ['bail', 'required', 'min:1', 'string']]);
         $model = $request->input('model');
         $modelInstance = new $model;
         $connectionName = $modelInstance->getConnection()->getDriverName();
         $tableName = $modelInstance->getConnection()->getTablePrefix() . $modelInstance->getTable();
-        $xAxisColumn = $request->input('col_xaxis') ?? DB::raw($tableName.".$dateColumn");
+        $xAxisColumn = $request->input('col_xaxis') ?? DB::raw($tableName.'.created_at');
         $cacheKey = hash('md4', $model . (int)(bool)$request->input('expires'));
         $dataSet = Cache::get($cacheKey);
         if (!$dataSet) {
@@ -55,20 +52,13 @@ class TotalRecordsController extends Controller
                     $filter = $seriesData->filter;
                     $labelList[$seriesKey] = $seriesData->label;
                     if(empty($filter->value)){
-                        if($modelValues) {
-                            foreach($filter as $keyFilter => $listFilter) {
-                                $seriesSql .= ", SUM($listFilter)";
-                                $seriesSql .= " AS '$labelList[$seriesKey]'";
-                            }
-                        } else {
-                            $seriesSql .= ", SUM(CASE WHEN ";
-                            $countFilter = count($filter);
-                            foreach($filter as $keyFilter => $listFilter){
-                                $seriesSql .= " ".$listFilter->key." ".($listFilter->operator ?? "=")." '".$listFilter->value."' ";
-                                $seriesSql .= $countFilter-1 != $keyFilter ? " AND " : "";
-                            }
-                            $seriesSql .= "then ".$calculation." else 0 end) as '".$labelList[$seriesKey]."'";
+                        $seriesSql .= ", SUM(CASE WHEN ";
+                        $countFilter = count($filter);
+                        foreach($filter as $keyFilter => $listFilter){
+                            $seriesSql .= " ".$listFilter->key." ".($listFilter->operator ?? "=")." '".$listFilter->value."' ";
+                            $seriesSql .= $countFilter-1 != $keyFilter ? " AND " : "";
                         }
+                        $seriesSql .= "then ".$calculation." else 0 end) as '".$labelList[$seriesKey]."'";
                     } else {
                         $seriesSql .= ", SUM(CASE WHEN ".$filter->key." ".($filter->operator ?? "=")." '".$filter->value."' then ".$calculation." else 0 end) as '".$labelList[$seriesKey]."'";
                     }
@@ -198,7 +188,7 @@ class TotalRecordsController extends Controller
                 $query->groupBy('catorder', 'cat')
                     ->orderBy('catorder', 'asc');
             }
-
+            
             if(isset(json_decode($request->options, true)['queryFilter'])){
                 $queryFilter = json_decode($request->options, true)['queryFilter'];
                 foreach($queryFilter as $qF){
@@ -217,7 +207,6 @@ class TotalRecordsController extends Controller
                     }
                 }
             }
-
             $dataSet = $query->get();
             $xAxis = collect($dataSet)->map(function ($item, $key) use ($unitOfMeasurement){
                 if($unitOfMeasurement=='week'){
