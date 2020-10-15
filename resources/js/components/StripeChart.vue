@@ -17,7 +17,27 @@
         </select>
       </div>
       <h4 class="chart-js-dashboard-title">{{ checkTitle }}</h4>
-      <line-chart :chart-data="datacollection" :options="options"></line-chart>
+      <div id="cardContent">
+        <div id="graph">
+          <line-chart :chart-data="datacollection" :options="options"></line-chart>
+        </div>
+        <div v-if="this.totals.counted > 0" id="totals">
+          <table>
+            <tr v-for="(value, key) in this.totals" v-if="key != 'counted'">
+              <td>{{ key }}:</td>
+              <td>{{ value }}</td>
+            </tr>
+            <tr>
+              <td>
+                {{ totalsFooter.key }}:
+              </td>
+              <td>
+                {{ totalsFooter.value }}
+              </td>
+            </tr>
+          </table>
+        </div>
+      </div>
     </card>
 </template>
 
@@ -49,6 +69,7 @@
       
       return {
         datacollection: {},
+        totals: {},
         options: {},
         buttonRefresh: this.card.options.btnRefresh,
         buttonReload: this.card.options.btnReload,
@@ -56,6 +77,7 @@
         externalLink: this.card.options.extLink,
         externalLinkIn: this.card.options.extLinkIn != undefined ? this.card.options.extLinkIn : '_self',
         chartTooltips: this.card.options.tooltips != undefined ? this.card.options.tooltips : undefined,
+        totalsOptions: this.card.options.totals != undefined ? this.card.options.totals : undefined,
         sweetAlert: this.card.options.sweetAlert2 != undefined ? this.card.options.sweetAlert2 : undefined,
         chartPlugins: this.card.options.plugins != undefined ? this.card.options.plugins : false,
         chartLayout: this.card.options.layout != undefined ? this.card.options.layout :
@@ -91,6 +113,14 @@
     computed: {
       checkTitle() {
         return this.card.title !== undefined ? this.card.title : 'Chart JS Integration';
+      },
+      totalsFooter() {
+        if(this.totalsOptions.callbacks.footer != undefined) {
+          let footerFunction = new Function("items", this.totalsOptions.callbacks.footer);
+          return footerFunction(this.totals);
+        }
+
+        return '';
       }
     },
     props: [
@@ -144,9 +174,9 @@
           var z;
           for (z = 0; z < tooltiplist.length; z++) {
             if(this.options.tooltips[tooltiplist[z]] != undefined){
-              if(this.options.tooltips[tooltiplist[z]].search("function") != -1){
+              // if(this.options.tooltips[tooltiplist[z]].search("function") != -1){
                 eval("this.options.tooltips." + tooltiplist[z] + " = " + this.options.tooltips[tooltiplist[z]]);
-              }
+              // }
             }
           }
           
@@ -155,9 +185,9 @@
             var i;
             for (i = 0; i < callbacklist.length; i++) {
               if(this.options.tooltips.callbacks[callbacklist[i]] != undefined){
-                if(this.options.tooltips.callbacks[callbacklist[i]].search("function") != -1){
+                // if(this.options.tooltips.callbacks[callbacklist[i]].search("function") != -1){
                   eval("this.options.tooltips.callbacks." + callbacklist[i] + " = " + this.options.tooltips.callbacks[callbacklist[i]]);
-                }
+                // }
               }
             }
           }
@@ -209,7 +239,6 @@
 
         } else {
           if(this.showAdvanceFilter == true) this.card.options.advanceFilterSelected = this.advanceFilterSelected != undefined ? this.advanceFilterSelected : false;
-
           // Use Model
           Nova.request().get("/coroowicaksono/check-data/endpoint/", {
             params: {
@@ -218,14 +247,18 @@
                 series: this.card.series,
                 options: this.card.options,
                 join: this.card.join,
+                totalData: this.card.totalData,
                 expires: 0,
             },
           })
           .then(({ data }) => {
+            this.totals = data.totals;
             this.datacollection = {
               labels: data.dataset.xAxis,
               datasets: data.dataset.yAxis,
             };
+
+
 
             // START == SETUP POPUP
             const sweetAlertWithLink = this.sweetAlert;

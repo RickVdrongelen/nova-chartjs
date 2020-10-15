@@ -67,4 +67,8 @@ class LineChart extends Card
     {
         return $this->withMeta([ 'join' => ['joinTable' => $joinTable, 'joinColumnFirst' => $joinColumnFirst, 'joinEqual' => $joinEqual, 'joinColumnSecond' => $joinColumnSecond] ]);
     }
+
+    public function totalData(array $data) {
+        return $this->withMeta([ 'totalData' => $data ]);
+    }
 }

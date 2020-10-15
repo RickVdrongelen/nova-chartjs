@@ -28,6 +28,7 @@ class TotalRecordsController extends Controller
         $dataForLast = isset($request->options) ? json_decode($request->options, true)['latestData'] ?? 3 : 3;
         $unitOfMeasurement = isset($request->options) ? json_decode($request->options, true)['uom'] ?? 'month' : 'month';
         $startWeek = isset($request->options) ? json_decode($request->options, true)['startWeek'] ?? '1' : '1';
+
         if(!in_array($unitOfMeasurement, ['day', 'week', 'month', 'hour'])){
             throw new ThrowError('UOM not defined correctly. <br/>Check documentation: https://github.com/coroo/nova-chartjs');
         }
@@ -35,6 +36,7 @@ class TotalRecordsController extends Controller
         $dateColumn = isset($request->options) ? json_decode($request->options, true)['dateColumn'] ?? 'created_at' : 'created_at';
         $calculation = isset($request->options) ? json_decode($request->options, true)['sum'] ?? 1 : 1;
         $modelValues = isset($request->options) ? json_decode($request->options, true)['modelValues'] ?? 1 : 1;
+
         $request->validate(['model'   => ['bail', 'required', 'min:1', 'string']]);
         $model = $request->input('model');
         $modelInstance = new $model;
@@ -74,6 +76,34 @@ class TotalRecordsController extends Controller
                     }
                 }
             }
+
+            $totalsSql = "";
+            if(isset($request->totalData)) {
+                foreach ($request->totalData as $totalDataKey => $totalDataList) {
+                    $data = json_decode($totalDataList);
+                    $filter = $data->filter;
+                    $labelList[$totalDataKey] = $data->label;
+                    if(empty($filter->value)) {
+                        if($modelValues) {
+                            foreach($filter as $keyFilter => $listFilter) {
+                                $totalsSql .= ", SUM($listFilter)";
+                                $totalsSql .= " AS '$labelList[$totalDataKey]'";
+                            }
+                        } else {
+                            $totalsSql .= ", SUM(CASE WHEN ";
+                            $countFilter = count($filter);
+                            foreach($filter as $keyFilter => $listFilter){
+                                $totalsSql .= " ".$listFilter->key." ".($listFilter->operator ?? "=")." '".$listFilter->value."' ";
+                                $totalsSql .= $countFilter-1 != $keyFilter ? " AND " : "";
+                            }
+                            $totalsSql .= "then ".$calculation." else 0 end) as '".$labelList[$totalDataKey]."'";
+                        }
+                    } else {
+                        $totalsSql .= ", SUM(CASE WHEN ".$filter->key." ".($filter->operator ?? "=")." '".$filter->value."' then ".$calculation." else 0 end) as '".$labelList[$totalDataKey]."'";
+                    }
+                }
+            }
+
             if($unitOfMeasurement=='day'){
                 if(isset($request->join)){
                     $joinInformation = json_decode($request->join, true);
@@ -81,25 +111,46 @@ class TotalRecordsController extends Controller
                         ->join($joinInformation['joinTable'], $joinInformation['joinColumnFirst'], $joinInformation['joinEqual'], $joinInformation['joinColumnSecond']);
                 } else {
                     $query = $model::selectRaw('DATE('.$xAxisColumn.') AS cat, DATE('.$xAxisColumn.') AS catorder, sum('.$calculation.') counted'.$seriesSql);
+                    $totalQuery = $model::selectRaw('DATE('.$xAxisColumn.') AS cat, DATE('.$xAxisColumn.') AS catorder, sum('.$calculation.') counted'.$seriesSql);
                 }
                 
                 if(is_numeric($advanceFilterSelected)){
                     $query->where($xAxisColumn, '>=', Carbon::now()->subDays($advanceFilterSelected));
+                    if(isset($request->totalData)){
+                        $totalQuery->where($xAxisColumn, '>=', Carbon::now()->subDays($advanceFilterSelected));
+                    }
                 }
                 else if($advanceFilterSelected=='YTD'){
                     $query->where($xAxisColumn, '>=', Carbon::now()->firstOfMonth()->subYear(1));
+                    if(isset($request->totalData)) {
+                        $totalQuery->where($xAxisColumn, '>=', Carbon::now()->firstOfMonth()->subYear(1));
+                    }
                 }
                 else if($advanceFilterSelected=='QTD'){
                     $query->where($xAxisColumn, '>=', Carbon::now()->firstOfMonth()->subMonths(2));
+                    if(isset($request->totalData)) {
+                        $totalQuery->where($xAxisColumn, '>=', Carbon::now()->firstOfMonth()->subMonths(2));
+                    }
+
                 }
                 else if($advanceFilterSelected=='MTD'){
                     $query->where($xAxisColumn, '>=', Carbon::now()->firstOfMonth());
+                    if(isset($request->totalData)) {
+                        $totalQuery->where($xAxisColumn, '>=', Carbon::now()->firstOfMonth());
+                    }
                 }
                 else if($dataForLast != '*') {
                     $query->where($xAxisColumn, '>=', Carbon::now()->subDay($dataForLast+1));
+                    if(isset($request->totalData)) {
+                        $totalQuery->where($xAxisColumn, '>=', Carbon::now()->subDay($dataForLast + 1));
+                    }
                 }
                 $query->groupBy('catorder', 'cat')
                     ->orderBy('catorder', 'asc');
+                if(isset($request->totalData)) {
+                    $totalQuery->groupBy('catorder', 'cat')
+                        ->orderBy('catorder', 'asc');
+                }
             } else if($unitOfMeasurement=='week'){
                 if(isset($request->join)){
                     $joinInformation = json_decode($request->join, true);
@@ -177,23 +228,42 @@ class TotalRecordsController extends Controller
                         $query = $model::selectRaw("to_char(".$xAxisColumn.", 'Mon YYYY') AS cat, to_char(".$xAxisColumn.", 'YYYY-MM') AS catorder, sum(".$calculation.") counted".$seriesSql);
                     } else {
                         $query = $model::selectRaw('DATE_FORMAT('.$xAxisColumn.', "%b %Y") AS cat, DATE_FORMAT('.$xAxisColumn.', "%Y-%m") AS catorder, sum('.$calculation.') counted'.$seriesSql);
+                        $totalQuery = $model::selectRaw('sum('.$calculation.') counted'.$totalsSql);
                     }
                 }
                 
                 if(is_numeric($advanceFilterSelected)){
                     $query->where($xAxisColumn, '>=', Carbon::now()->subDays($advanceFilterSelected));
+
+                    if(isset($request->totalData)) {
+                        $totalQuery->where($xAxisColumn, '>=', Carbon::now()->subDays($advanceFilterSelected));
+                    }
                 }
                 else if($advanceFilterSelected=='YTD'){
                     $query->where($xAxisColumn, '>=', Carbon::now()->firstOfMonth()->subYear(1));
+
+                    if(isset($request->totalData)) {
+                        $totalQuery->where($xAxisColumn, '>=', Carbon::now()->firstOfMonth()->subYear(1));
+                    }
                 }
                 else if($advanceFilterSelected=='QTD'){
                     $query->where($xAxisColumn, '>=', Carbon::now()->firstOfMonth()->subMonths(2));
+
+                    if(isset($request->totalData)) {
+                        $totalQuery->where($xAxisColumn, '>=', Carbon::now()->firstOfMonth()->subMonths(2));
+                    }
                 }
                 else if($advanceFilterSelected=='MTD'){
                     $query->where($xAxisColumn, '>=', Carbon::now()->firstOfMonth());
+                    if(isset($request->totalData)) {
+                        $totalQuery->where($xAxisColumn, '>=', Carbon::now()->firstOfMonth());
+                    }
                 }
                 else if($dataForLast != '*') {
                     $query->where($xAxisColumn, '>=', Carbon::now()->firstOfMonth()->subMonth($dataForLast-1));
+                    if(isset($request->totalData)) {
+                        $totalQuery->where($xAxisColumn, '>=', Carbon::now()->firstOfMonth()->subMonth($dataForLast-1));
+                    }
                 }
                 $query->groupBy('catorder', 'cat')
                     ->orderBy('catorder', 'asc');
@@ -205,20 +275,33 @@ class TotalRecordsController extends Controller
                     if(isset($qF['value'])){
                         if(isset($qF['operator'])){
                             $query->where($qF['key'], $qF['operator'], $qF['value']);
+                            if(isset($request->totalData)) {
+                                $totalQuery->where($qF['key'], $qF['operator'], $qF['value']);
+                            }
                         } else {
                             $query->where($qF['key'], $qF['value']);
+                            if(isset($request->totalData)) {
+                                $totalQuery->where($qF['key'], $qF['value']);
+                            }
                         }
                     } else {
                         if($qF['operator']=='IS NULL'){
                             $query->whereNull($qF['key']);
+                            if(isset($request->totalData)) {
+                                $totalQuery->whereNull($qF['key']);
+                            }
                         } else if($qF['operator']=='IS NOT NULL'){
                             $query->whereNotNull($qF['key']);
+                            if(isset($request->totalData)) {
+                                $totalQuery->whereNotNull($qF['key']);
+                            }
                         }
                     }
                 }
             }
 
             $dataSet = $query->get();
+
             $xAxis = collect($dataSet)->map(function ($item, $key) use ($unitOfMeasurement){
                 if($unitOfMeasurement=='week'){
                     $splitCat = str_split($item->only(['cat'])['cat'], 4);
@@ -228,6 +311,7 @@ class TotalRecordsController extends Controller
                 }
                 return $cat;
             });
+
             if(isset($request->series)){
                 $countKey = 0;
                 foreach($request->series as $sKey => $sData){
@@ -259,11 +343,16 @@ class TotalRecordsController extends Controller
                 Cache::put($cacheKey, $dataSet, Carbon::parse($request->input('expires')));
             }
         }
+
+        $totals = [];
+        if(isset($request->totalData)) {
+            $totals = $totalQuery->first()->toArray();
+        }
         return response()->json(
             ['dataset' => [
                 'xAxis'  => $xAxis,
-                'yAxis'  => $yAxis
-            ]
+                'yAxis'  => $yAxis,
+            ], 'totals' => $totals,
         ]);
     }
     
