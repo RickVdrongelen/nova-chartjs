@@ -86,7 +86,7 @@ class TotalRecordsController extends Controller
                     if(empty($filter->value)) {
                         if($modelValues) {
                             foreach($filter as $keyFilter => $listFilter) {
-                                $totalsSql .= ", SUM($listFilter)";
+                                $totalsSql .= ", ROUND(SUM($listFilter), 2)";
                                 $totalsSql .= " AS '$labelList[$totalDataKey]'";
                             }
                         } else {
@@ -99,7 +99,7 @@ class TotalRecordsController extends Controller
                             $totalsSql .= "then ".$calculation." else 0 end) as '".$labelList[$totalDataKey]."'";
                         }
                     } else {
-                        $totalsSql .= ", SUM(CASE WHEN ".$filter->key." ".($filter->operator ?? "=")." '".$filter->value."' then ".$calculation." else 0 end) as '".$labelList[$totalDataKey]."'";
+                        $totalsSql .= ", ROUND(SUM(CASE WHEN ".$filter->key." ".($filter->operator ?? "=")." '".$filter->value."' then ".$calculation." else 0 end), 2) as '".$labelList[$totalDataKey]."'";
                     }
                 }
             }
